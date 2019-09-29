@@ -1,0 +1,7 @@
+[package]
+name = "spark-history-analyzer"
+version = "0.1.0"
+authors = ["Radek Micek <radek.micek@gmail.com>"]
+edition = "2018"
+
+[dependencies]

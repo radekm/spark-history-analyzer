@@ -131,12 +131,30 @@ fn compute_stats(mut samples: Vec<f64>) -> Stats {
     }
 }
 
-fn main() {
-    // Process Spark history folder which contains logs in json lines format.
-    // Read events from stdin or read files with events.
+use std::io::{self, BufRead};
 
-    // Process events, gather statistics.
-    // Log things which should be processed but weren't to stdout (eg. unknown termination reasons).
+mod parsing;
+
+fn main() {
+    let mut applications = Vec::new();
+    // Read input file names from stdin.
+    for line in io::stdin().lock().lines() {
+        applications.push(parsing::parse_application_log(line.expect("filename from stdin")));
+    }
+
+    // Remove.
+    for app in applications {
+        println!("application {}", app.app_name);
+        println!("queue {}", app.queue);
+        println!("user {}", app.user);
+        println!("spark version {}", app.spark_version);
+        println!("num. of stages {}", app.stages.len());
+        for (_, stage) in app.stages {
+            println!("Stage {} has {} tasks", stage.stage_id, stage.tasks.len());
+        }
+    }
+
+    // From parsed application log compute statistics.
 
     // Write web page which shows statistics to stdout.
 }

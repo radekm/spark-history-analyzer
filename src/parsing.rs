@@ -258,6 +258,11 @@ pub struct ParsedTask {
 pub enum ParsedTaskEndReason {
     Success,
     LostExecutorPreempted,
+    LostExecutorMemoryOverheadExceeded,
+    // Error when executing container from shell. Maybe bad JVM args.
+    LostExecutorShellError,
+    // Probably memory problem. See YARN log for the container for more details.
+    LostExecutorKilledByExternalSignal,
     LostExecutorOther,
     // For speculative execution.
     KilledAnotherAttemptSucceeded,
@@ -280,6 +285,15 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                     let loss_reason = e.task_end_reason.loss_reason.as_ref().expect("executor loss reason");
                     if loss_reason.ends_with(" was preempted.") {
                         ParsedTaskEndReason::LostExecutorPreempted
+                    } else if loss_reason.starts_with("Container killed by YARN for exceeding memory limits.") &&
+                        loss_reason.ends_with("Consider boosting spark.yarn.executor.memoryOverhead.") {
+                        ParsedTaskEndReason::LostExecutorMemoryOverheadExceeded
+                    } else if loss_reason.starts_with("Container marked as failed:") &&
+                        loss_reason.contains("org.apache.hadoop.util.Shell.runCommand") {
+                        ParsedTaskEndReason::LostExecutorShellError
+                    } else if loss_reason.starts_with("Container marked as failed:") &&
+                        loss_reason.contains("Killed by external signal") {
+                        ParsedTaskEndReason::LostExecutorKilledByExternalSignal
                     } else {
                         eprintln!("Unknown executor loss reason: {:?}", e);
                         ParsedTaskEndReason::LostExecutorOther

@@ -273,6 +273,12 @@ pub enum ParsedTaskEndReason {
     Other,
 }
 
+fn check_exit_caused_by_app(expected: Option<bool>, e: &SparkListenerTaskEndEvent) {
+    if e.task_end_reason.exit_caused_by_app != expected {
+        eprintln!("Expected task end reason {:?}: {:?}", expected, e);
+    }
+}
+
 fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut ParsedApplicationLog) {
     match serde_json::from_value::<SparkListenerTaskEndEvent>(json.clone()) {
         Ok(e) => {
@@ -280,19 +286,26 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                 eprintln!("Unknown task type: {:?}", e);
             }
             let task_end_reason = match e.task_end_reason.reason.as_str() {
-                "Success" => ParsedTaskEndReason::Success,
+                "Success" => {
+                    check_exit_caused_by_app(None, &e);
+                    ParsedTaskEndReason::Success
+                },
                 "ExecutorLostFailure" => {
                     let loss_reason = e.task_end_reason.loss_reason.as_ref().expect("executor loss reason");
                     if loss_reason.ends_with(" was preempted.") {
+                        check_exit_caused_by_app(Some(false), &e);
                         ParsedTaskEndReason::LostExecutorPreempted
                     } else if loss_reason.starts_with("Container killed by YARN for exceeding memory limits.") &&
                         loss_reason.ends_with("Consider boosting spark.yarn.executor.memoryOverhead.") {
+                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorMemoryOverheadExceeded
                     } else if loss_reason.starts_with("Container marked as failed:") &&
                         loss_reason.contains("org.apache.hadoop.util.Shell.runCommand") {
+                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorShellError
                     } else if loss_reason.starts_with("Container marked as failed:") &&
                         loss_reason.contains("Killed by external signal") {
+                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorKilledByExternalSignal
                     } else {
                         eprintln!("Unknown executor loss reason: {:?}", e);
@@ -300,6 +313,7 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                     }
                 },
                 "ExceptionFailure" => {
+                    check_exit_caused_by_app(Some(true), &e);
                     let class_name = e.task_end_reason.class_name.as_ref().expect("exception class name");
                     if class_name == "org.apache.spark.SparkException" {
                         ParsedTaskEndReason::ExceptionSparkException
@@ -308,6 +322,7 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                     }
                 },
                 "TaskKilled" => {
+                    check_exit_caused_by_app(None, &e);
                     let kill_reason = e.task_end_reason.kill_reason.as_ref().expect("kill reason");
                     if kill_reason == "another attempt succeeded" {
                         ParsedTaskEndReason::KilledAnotherAttemptSucceeded

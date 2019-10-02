@@ -349,8 +349,8 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                 Occupied(entry) => entry.into_mut(),
             };
 
-            if e.task_metrics.is_none() && task_end_reason != ParsedTaskEndReason::LostExecutorPreempted {
-                eprintln!("Task doesn't have metrics and it was not preempted: {:?}", e);
+            if task_end_reason == ParsedTaskEndReason::Success && e.task_metrics.is_none() {
+                eprintln!("Successful task without metrics: {:?}", e);
             }
 
             stage.tasks.push(ParsedTask {

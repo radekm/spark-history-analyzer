@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 struct Application {
     app_id: String,
     app_name: String,
@@ -13,6 +14,7 @@ struct Application {
     event_counts_by_type: HashMap<String, u64>,
 }
 
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 struct Problems {
     app: Application,
 
@@ -27,18 +29,21 @@ struct Problems {
     too_much_gc: Vec<TooMuchGcInStage>,
 }
 
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 struct TaskCountInStage {
     stage_id: i64,
     matching_count: u64,
     total_count: u64,
 }
 
+// Stages where GC takes more than 20 % of time.
+// Stages shorter than 2 minutes are ignored.
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 struct TooMuchGcInStage {
     stage_id: i64,
-    selected_task_gc_time_s: f64,
-    selected_task_total_time_s: f64,
-    substantial_gc_task_count: u64,
-    total_task_count: u64,
+    gc_secs_for_all_tasks: f64,
+    total_secs_for_all_tasks: f64,
+    task_with_metrics_count: u64,
 }
 
 struct Stats {
@@ -120,30 +125,107 @@ fn compute_stats(mut samples: Vec<f64>) -> Stats {
 }
 
 use std::io::{self, BufRead};
+use crate::parsing::{ParsedTaskEndReason, ParsedStage};
 
 mod parsing;
 
-fn main() {
-    let mut applications = Vec::new();
-    // Read input file names from stdin.
-    for line in io::stdin().lock().lines() {
-        let log_file = line.expect("filename from stdin");
-        applications.push(parsing::parse_application_log(&log_file));
-    }
+// TODO Stage_id is same in different attempts?? If so we should use pair (stage_id, stage_attempt_id).
 
-    // Remove.
-    for app in applications {
-        println!("application {}", app.app_name);
-        println!("queue {:?}", app.queue);
-        println!("user {}", app.user);
-        println!("spark version {}", app.spark_version);
-        println!("num. of stages {}", app.stages.len());
-        for (_, stage) in app.stages {
-            println!("Stage {} has {} tasks", stage.stage_id, stage.tasks.len());
+fn count_tasks_with_task_end_reason(task_end_reason: ParsedTaskEndReason, stages: &HashMap<i64, ParsedStage>) -> Vec<TaskCountInStage> {
+    let mut result = Vec::new();
+
+    for (_, stage) in stages.iter() {
+        let mut matching_count = 0u64;
+        for task in stage.tasks.iter() {
+            if task.task_end_reason == task_end_reason {
+                matching_count += 1;
+            }
+        }
+
+        if matching_count > 0 {
+            result.push(TaskCountInStage {
+                stage_id: stage.stage_id,
+                matching_count,
+                total_count: stage.tasks.len() as u64,
+            });
         }
     }
 
-    // From parsed application log compute statistics.
+    result.sort_by_key(|x| x.stage_id);
+    result
+}
+
+fn find_stages_with_too_much_gc(stages: &HashMap<i64, ParsedStage>) -> Vec<TooMuchGcInStage> {
+    let mut result = Vec::new();
+
+    for (_, stage) in stages.iter() {
+        let mut gc_secs_for_all_tasks = 0f64;
+        let mut total_secs_for_all_tasks = 0f64;
+        let mut task_with_metrics_count = 0u64;
+
+
+        for task in stage.tasks.iter() {
+            match task.metrics.as_ref() {
+                None => (),
+                Some(metrics) => {
+                    gc_secs_for_all_tasks += metrics.jvm_gc_time as f64 / 1000.0;
+                    total_secs_for_all_tasks += metrics.executor_run_time as f64 / 1000.0;
+                    task_with_metrics_count += 1;
+                },
+            }
+        }
+
+        if total_secs_for_all_tasks >= 120.0 && (gc_secs_for_all_tasks / total_secs_for_all_tasks) > 0.2 {
+            result.push(TooMuchGcInStage {
+                stage_id: stage.stage_id,
+                gc_secs_for_all_tasks,
+                total_secs_for_all_tasks,
+                task_with_metrics_count
+            });
+        }
+    }
+
+    result.sort_by_key(|x| x.stage_id);
+    result
+}
+
+fn main() {
+    let mut report = Vec::new();
+    // Read input file names from stdin.
+    for line in io::stdin().lock().lines() {
+        let log_file = line.expect("filename from stdin");
+        let parsed = parsing::parse_application_log(&log_file);
+
+        let app = Application {
+            app_id: parsed.app_id,
+            app_name: parsed.app_name,
+            timestamp_start: parsed.timestamp,
+            timestamp_end: 0, // TODO
+            user: parsed.user,
+            spark_version: parsed.spark_version,
+            queue: parsed.queue,
+            log_file,
+            event_counts_by_type: parsed.event_counts_by_type,
+        };
+
+        report.push(Problems {
+            app,
+
+            lost_executor_memory_overhead_exceeded: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorMemoryOverheadExceeded, &parsed.stages),
+            lost_executor_shell_error: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorShellError, &parsed.stages),
+            lost_executor_killed_by_external_signal: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorKilledByExternalSignal, &parsed.stages),
+            lost_executor_other: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorOther, &parsed.stages),
+            killed_another_attempt_succeeded: count_tasks_with_task_end_reason(ParsedTaskEndReason::KilledAnotherAttemptSucceeded, &parsed.stages),
+            exception_spark_exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::ExceptionSparkException, &parsed.stages),
+            exception_other: count_tasks_with_task_end_reason(ParsedTaskEndReason::ExceptionOther, &parsed.stages),
+
+            too_much_gc: find_stages_with_too_much_gc(&parsed.stages),
+        });
+    }
+
+    for item in report.iter() {
+        println!("{:?}", item);
+    }
 
     // Write web page which shows statistics to stdout.
 }

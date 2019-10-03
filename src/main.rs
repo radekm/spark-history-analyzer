@@ -23,8 +23,7 @@ struct Problems {
     lost_executor_killed_by_external_signal: Vec<TaskCountInStage>,
     lost_executor_other: Vec<TaskCountInStage>,
     killed_another_attempt_succeeded: Vec<TaskCountInStage>,
-    exception_spark_exception: Vec<TaskCountInStage>,
-    exception_other: Vec<TaskCountInStage>,
+    exception: Vec<TaskCountInStage>,
 
     too_much_gc: Vec<TooMuchGcInStage>,
 }
@@ -216,8 +215,7 @@ fn main() {
             lost_executor_killed_by_external_signal: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorKilledByExternalSignal, &parsed.stages),
             lost_executor_other: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorOther, &parsed.stages),
             killed_another_attempt_succeeded: count_tasks_with_task_end_reason(ParsedTaskEndReason::KilledAnotherAttemptSucceeded, &parsed.stages),
-            exception_spark_exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::ExceptionSparkException, &parsed.stages),
-            exception_other: count_tasks_with_task_end_reason(ParsedTaskEndReason::ExceptionOther, &parsed.stages),
+            exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::Exception, &parsed.stages),
 
             too_much_gc: find_stages_with_too_much_gc(&parsed.stages),
         });

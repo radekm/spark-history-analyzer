@@ -269,8 +269,7 @@ pub enum ParsedTaskEndReason {
     KilledAnotherAttemptSucceeded,
     KilledCanceled,
     KilledOther,
-    ExceptionSparkException,
-    ExceptionOther,
+    Exception,
     Other,
 }
 
@@ -315,12 +314,7 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                 },
                 "ExceptionFailure" => {
                     check_exit_caused_by_app(Some(true), &e);
-                    let class_name = e.task_end_reason.class_name.as_ref().expect("exception class name");
-                    if class_name == "org.apache.spark.SparkException" {
-                        ParsedTaskEndReason::ExceptionSparkException
-                    } else {
-                        ParsedTaskEndReason::ExceptionOther
-                    }
+                    ParsedTaskEndReason::Exception
                 },
                 "TaskKilled" => {
                     check_exit_caused_by_app(None, &e);

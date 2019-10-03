@@ -127,7 +127,8 @@ fn main() {
     let mut applications = Vec::new();
     // Read input file names from stdin.
     for line in io::stdin().lock().lines() {
-        applications.push(parsing::parse_application_log(line.expect("filename from stdin")));
+        let log_file = line.expect("filename from stdin");
+        applications.push(parsing::parse_application_log(&log_file));
     }
 
     // Remove.

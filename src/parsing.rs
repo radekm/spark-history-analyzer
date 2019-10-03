@@ -156,8 +156,9 @@ pub struct ShuffleReadMetrics {
     pub fetch_wait_time: i64,
     #[serde(rename = "Remote Bytes Read")]
     pub remote_bytes_read: i64,
+    // Optional because it's not present in Spark 2.2.
     #[serde(rename = "Remote Bytes Read To Disk")]
-    pub remote_bytes_read_to_disk: i64,
+    pub remote_bytes_read_to_disk: Option<i64>,
     #[serde(rename = "Local Bytes Read")]
     pub local_bytes_read: i64,
     #[serde(rename = "Total Records Read")]
@@ -383,7 +384,7 @@ fn handle_event_spark_listener_application_start(json: serde_json::Value, parsed
     parsed.user = e.user;
 }
 
-pub fn parse_application_log(log_file: String) -> ParsedApplicationLog {
+pub fn parse_application_log(log_file: &str) -> ParsedApplicationLog {
     let file = fs::File::open(log_file).unwrap();
     let reader = BufReader::new(file);
 
@@ -402,7 +403,13 @@ pub fn parse_application_log(log_file: String) -> ParsedApplicationLog {
     };
 
     for item in iterator {
-        let json = item.unwrap();
+        let json = match item {
+            Ok(json) => json,
+            Err(err) => {
+                eprintln!("Cannot parse JSON in log {}: {:?}", log_file, err);
+                break
+            },
+        };
         // Every event has event type.
         let event_type = String::from(json.as_object().expect("root object").get("Event").expect("field Event").as_str().expect("Event string"));
 

@@ -7,7 +7,7 @@ struct Application {
     timestamp_end: i64,
     user: String,
     spark_version: String,
-    queue: String,
+    queue: Option<String>,
     log_file: String,
     // Event type -> count.
     event_counts_by_type: HashMap<String, u64>,
@@ -133,7 +133,7 @@ fn main() {
     // Remove.
     for app in applications {
         println!("application {}", app.app_name);
-        println!("queue {}", app.queue);
+        println!("queue {:?}", app.queue);
         println!("user {}", app.user);
         println!("spark version {}", app.spark_version);
         println!("num. of stages {}", app.stages.len());

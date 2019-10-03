@@ -212,7 +212,7 @@ struct SparkListenerEnvironmentUpdateEvent {
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 struct SparkProperties {
     #[serde(rename = "spark.yarn.queue")]
-    spark_yarn_queue: String,
+    spark_yarn_queue: Option<String>
 }
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -236,7 +236,7 @@ pub struct ParsedApplicationLog {
     pub timestamp: i64,
     pub user: String,
     pub spark_version: String,
-    pub queue: String,
+    pub queue: Option<String>,
     pub stages: HashMap<i64, ParsedStage>,
     pub event_counts_by_type: HashMap<String, u64>,
 }
@@ -369,7 +369,10 @@ fn handle_event_spark_listener_log_start(json: serde_json::Value, parsed: &mut P
 
 fn handle_event_spark_listener_environment_update(json: serde_json::Value, parsed: &mut ParsedApplicationLog) {
     let e = serde_json::from_value::<SparkListenerEnvironmentUpdateEvent>(json).expect("JSON representing SparkListenerEnvironmentUpdateEvent");
-    parsed.queue = e.spark_properties.spark_yarn_queue;
+    match e.spark_properties.spark_yarn_queue {
+        Some(q) => parsed.queue = Some(q),
+        None => (),
+    }
 }
 
 fn handle_event_spark_listener_application_start(json: serde_json::Value, parsed: &mut ParsedApplicationLog) {
@@ -393,7 +396,7 @@ pub fn parse_application_log(log_file: String) -> ParsedApplicationLog {
         timestamp: -1,
         user: String::new(),
         spark_version: String::new(),
-        queue: String::new(),
+        queue: None,
         stages: HashMap::new(),
         event_counts_by_type: HashMap::new(),
     };

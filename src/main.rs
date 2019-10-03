@@ -1,45 +1,44 @@
 use std::collections::HashMap;
 
-struct ApplicationSummary {
-    application_id: String,
-    application_name: String,
+struct Application {
+    app_id: String,
+    app_name: String,
+    timestamp_start: i64,
+    timestamp_end: i64,
     user: String,
+    spark_version: String,
     queue: String,
-    total_time_secs: f64,
-    stages: Vec<StageSummary>,
+    log_file: String,
     // Event type -> count.
-    event_counts_in_log: HashMap<String, u64>,
+    event_counts_by_type: HashMap<String, u64>,
 }
 
-struct StageSummary {
-    stage_id: String,
+struct Problems {
+    app: Application,
 
-    // Statistics for tasks.
-    tasks: TasksInStageSummary,
+    lost_executor_memory_overhead_exceeded: Vec<TaskCountInStage>,
+    lost_executor_shell_error: Vec<TaskCountInStage>,
+    lost_executor_killed_by_external_signal: Vec<TaskCountInStage>,
+    lost_executor_other: Vec<TaskCountInStage>,
+    killed_another_attempt_succeeded: Vec<TaskCountInStage>,
+    exception_spark_exception: Vec<TaskCountInStage>,
+    exception_other: Vec<TaskCountInStage>,
 
-    // Statistics for whole stage.
-    cpu_time_secs: f64,
-    total_time_secs: f64,
+    too_much_gc: Vec<TooMuchGcInStage>,
 }
 
-struct TasksInStageSummary {
-    shuffle_bytes_read: Stats,
-    shuffle_bytes_written: Stats,
-    deserialization_time_secs: Stats,
-    gc_time_secs: Stats,
-    ratio_gc_time_to_total_time: Stats,
-    cpu_time_secs: Stats,
-    total_time_secs: Stats,
-
-    counts: TaskCountsByTerminationReason,
+struct TaskCountInStage {
+    stage_id: i64,
+    matching_count: u64,
+    total_count: u64,
 }
 
-struct TaskCountsByTerminationReason {
-    executor_lost_preempted: u64,
-    executor_lost_other: u64,
-    exception: u64,
-    success: u64,
-    other: u64,
+struct TooMuchGcInStage {
+    stage_id: i64,
+    selected_task_gc_time_s: f64,
+    selected_task_total_time_s: f64,
+    substantial_gc_task_count: u64,
+    total_task_count: u64,
 }
 
 struct Stats {
@@ -47,8 +46,6 @@ struct Stats {
     percentiles: HashMap<i32, f64>,
     mean: f64,
     std_dev: f64,
-    // Number of numbers bigger than mean + 4*sigma
-    anomaly_cnt: u64,
 }
 
 fn quantile(q: f64, sorted_samples: &Vec<f64>) -> f64 {
@@ -114,20 +111,11 @@ fn compute_stats(mut samples: Vec<f64>) -> Stats {
     let mean = mean(&samples);
     let std_dev = std_dev(mean, &samples);
 
-    let anomaly_threshold = mean + 4.0 * std_dev;
-    let mut anomaly_cnt = 0u64;
-    for x in samples.iter() {
-        if *x >= anomaly_threshold {
-            anomaly_cnt += 1;
-        }
-    }
-
     Stats {
         cnt: samples.len() as u64,
         percentiles,
         mean,
         std_dev,
-        anomaly_cnt,
     }
 }
 

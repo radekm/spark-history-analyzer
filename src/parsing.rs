@@ -303,6 +303,10 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                     check_exit_caused_by_app(None, &e);
                     ParsedTaskEndReason::Success
                 },
+                "ExceptionFailure" => {
+                    check_exit_caused_by_app(None, &e);
+                    ParsedTaskEndReason::Exception
+                },
                 "ExecutorLostFailure" => {
                     let loss_reason = e.task_end_reason.loss_reason.as_ref().expect("executor loss reason");
                     if loss_reason.ends_with(" was preempted.") {
@@ -323,17 +327,21 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                         loss_reason.contains("Killed by external signal") {
                         check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorKilledByExternalSignal
+                    } else if loss_reason.starts_with("Container from a bad node:") &&
+                        loss_reason.contains("Killed by external signal") {
+                        check_exit_caused_by_app(Some(true), &e);
+                        ParsedTaskEndReason::LostExecutorKilledByExternalSignal
                     } else if loss_reason.starts_with("Unable to create executor due to Unable to register with external shuffle server due to") ||
                         loss_reason == "Slave lost" {
+                        ParsedTaskEndReason::LostExecutorOther
+                    } else if loss_reason.starts_with("Container marked as failed:") &&
+                        loss_reason.ends_with("Diagnostics: Container released on a *lost* node") {
+                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorOther
                     } else {
                         eprintln!("Unknown executor loss reason: {:?}", e);
                         ParsedTaskEndReason::LostExecutorOther
                     }
-                },
-                "ExceptionFailure" => {
-                    check_exit_caused_by_app(None, &e);
-                    ParsedTaskEndReason::Exception
                 },
                 "TaskKilled" => {
                     check_exit_caused_by_app(None, &e);

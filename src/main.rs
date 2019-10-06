@@ -19,6 +19,7 @@ struct Problems {
     app: Application,
 
     lost_executor_memory_overhead_exceeded: Vec<TaskCountInStage>,
+    lost_executor_heartbeat_timed_out: Vec<TaskCountInStage>,
     lost_executor_shell_error: Vec<TaskCountInStage>,
     lost_executor_killed_by_external_signal: Vec<TaskCountInStage>,
     lost_executor_other: Vec<TaskCountInStage>,
@@ -26,6 +27,16 @@ struct Problems {
     exception: Vec<TaskCountInStage>,
 
     too_much_gc: Vec<TooMuchGcInStage>,
+}
+
+fn has_problem(problems: &Problems) -> bool {
+    problems.lost_executor_memory_overhead_exceeded.len() > 0 ||
+        problems.lost_executor_shell_error.len() > 0 ||
+        problems.lost_executor_killed_by_external_signal.len() > 0 ||
+        problems.lost_executor_other.len() > 0 ||
+        problems.killed_another_attempt_succeeded.len() > 0 ||
+        problems.exception.len() > 0 ||
+        problems.too_much_gc.len() > 0
 }
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -207,10 +218,11 @@ fn main() {
             event_counts_by_type: parsed.event_counts_by_type,
         };
 
-        report.push(Problems {
+        let problems = Problems {
             app,
 
             lost_executor_memory_overhead_exceeded: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorMemoryOverheadExceeded, &parsed.stages),
+            lost_executor_heartbeat_timed_out: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorHeartbeatTimedOut, &parsed.stages),
             lost_executor_shell_error: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorShellError, &parsed.stages),
             lost_executor_killed_by_external_signal: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorKilledByExternalSignal, &parsed.stages),
             lost_executor_other: count_tasks_with_task_end_reason(ParsedTaskEndReason::LostExecutorOther, &parsed.stages),
@@ -218,10 +230,15 @@ fn main() {
             exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::Exception, &parsed.stages),
 
             too_much_gc: find_stages_with_too_much_gc(&parsed.stages),
-        });
+        };
+
+        if has_problem(&problems) {
+            report.push(problems);
+        }
     }
 
-    for item in report.iter() {
+    for item in report.iter_mut() {
+        item.app.event_counts_by_type.clear();
         println!("{:?}", item);
     }
 

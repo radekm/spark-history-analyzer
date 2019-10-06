@@ -237,10 +237,10 @@ fn main() {
         }
     }
 
-    for item in report.iter_mut() {
-        item.app.event_counts_by_type.clear();
-        println!("{:?}", item);
-    }
+    let report_json = serde_json::to_string_pretty(&report).expect("serialized JSON");
 
-    // Write web page which shows statistics to stdout.
+    let report_html_template = include_str!("report.html");
+    let report_html = report_html_template.replace("\"{REPORT}\"", &report_json);
+
+    println!("{}", report_html);
 }

@@ -209,8 +209,8 @@ fn main() {
         let app = Application {
             app_id: parsed.app_id,
             app_name: parsed.app_name,
-            timestamp_start: parsed.timestamp,
-            timestamp_end: 0, // TODO
+            timestamp_start: parsed.timestamp_start,
+            timestamp_end: parsed.timestamp_end,
             user: parsed.user,
             spark_version: parsed.spark_version,
             queue: parsed.queue,

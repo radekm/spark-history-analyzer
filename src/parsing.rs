@@ -242,11 +242,20 @@ struct SparkListenerApplicationStartEvent {
     user: String,
 }
 
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
+struct SparkListenerApplicationEndEvent {
+    #[serde(rename = "Event")]
+    event: String,
+    #[serde(rename = "Timestamp")]
+    timestamp: i64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedApplicationLog {
     pub app_name: String,
     pub app_id: String,
-    pub timestamp: i64,
+    pub timestamp_start: i64,
+    pub timestamp_end: i64,
     pub user: String,
     pub spark_version: String,
     pub queue: Option<String>,
@@ -402,8 +411,13 @@ fn handle_event_spark_listener_application_start(json: serde_json::Value, parsed
     let e = serde_json::from_value::<SparkListenerApplicationStartEvent>(json).expect("JSON representing SparkListenerApplicationStartEvent");
     parsed.app_name = e.app_name;
     parsed.app_id = e.app_id;
-    parsed.timestamp = e.timestamp;
+    parsed.timestamp_start = e.timestamp;
     parsed.user = e.user;
+}
+
+fn handle_event_spark_listener_application_end(json: serde_json::Value, parsed: &mut ParsedApplicationLog) {
+    let e = serde_json::from_value::<SparkListenerApplicationEndEvent>(json).expect("JSON representing SparkListenerApplicationEndEvent");
+    parsed.timestamp_end = e.timestamp;
 }
 
 pub fn parse_application_log(log_file: &str) -> ParsedApplicationLog {
@@ -417,7 +431,8 @@ pub fn parse_application_log(log_file: &str) -> ParsedApplicationLog {
     let mut parsed = ParsedApplicationLog {
         app_name: String::new(),
         app_id: String::new(),
-        timestamp: -1,
+        timestamp_start: -1,
+        timestamp_end: -1,
         user: String::new(),
         spark_version: String::new(),
         queue: None,
@@ -447,6 +462,7 @@ pub fn parse_application_log(log_file: &str) -> ParsedApplicationLog {
             "SparkListenerLogStart" => handle_event_spark_listener_log_start(json, &mut parsed),
             "SparkListenerEnvironmentUpdate" => handle_event_spark_listener_environment_update(json, &mut parsed),
             "SparkListenerApplicationStart" => handle_event_spark_listener_application_start(json, &mut parsed),
+            "SparkListenerApplicationEnd" => handle_event_spark_listener_application_end(json, &mut parsed),
             _ => (),
         }
     };

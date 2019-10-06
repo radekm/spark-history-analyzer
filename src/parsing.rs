@@ -399,10 +399,11 @@ fn handle_event_spark_listener_application_start(json: serde_json::Value, parsed
 }
 
 pub fn parse_application_log(log_file: &str) -> ParsedApplicationLog {
-    let file = fs::File::open(log_file).unwrap();
+    let file = fs::File::open(log_file).expect("opened file");
     let reader = BufReader::new(file);
 
-    let deserializer = serde_json::Deserializer::from_reader(reader);
+    let mut deserializer = serde_json::Deserializer::from_reader(reader);
+    deserializer.disable_recursion_limit();
     let iterator = deserializer.into_iter::<serde_json::Value>();
 
     let mut parsed = ParsedApplicationLog {

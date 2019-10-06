@@ -58,6 +58,18 @@ struct TaskEndReason {
     #[serde(rename = "Kill Reason")]
     kill_reason: Option<String>,
 
+    // Present when reason is `FetchFailed`.
+    #[serde(rename = "Block Manager Address")]
+    block_manager_address: Option<serde_json::Value>,
+    #[serde(rename = "Message")]
+    message: Option<String>,
+    #[serde(rename = "Map ID")]
+    map_id: Option<i64>,
+    #[serde(rename = "Reduce ID")]
+    reduce_id: Option<i64>,
+    #[serde(rename = "Shuffle ID")]
+    shuffle_id: Option<i64>,
+
     #[serde(rename = "Accumulator Updates")]
     accumulator_updates: Option<serde_json::Value>,
 }
@@ -260,6 +272,7 @@ pub enum ParsedTaskEndReason {
     Success,
     LostExecutorPreempted,
     LostExecutorMemoryOverheadExceeded,
+    LostExecutorHeartbeatTimedOut,
     // Error when executing container from shell. Maybe bad JVM args.
     LostExecutorShellError,
     // Probably memory problem. See YARN log for the container for more details.
@@ -296,9 +309,12 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                         check_exit_caused_by_app(Some(false), &e);
                         ParsedTaskEndReason::LostExecutorPreempted
                     } else if loss_reason.starts_with("Container killed by YARN for exceeding memory limits.") &&
-                        loss_reason.ends_with("Consider boosting spark.yarn.executor.memoryOverhead.") {
+                        loss_reason.contains("Consider boosting spark.yarn.executor.memoryOverhead") {
                         check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorMemoryOverheadExceeded
+                    } else if loss_reason.starts_with("Executor heartbeat timed out after ") {
+                        check_exit_caused_by_app(Some(true), &e);
+                        ParsedTaskEndReason::LostExecutorHeartbeatTimedOut
                     } else if loss_reason.starts_with("Container marked as failed:") &&
                         loss_reason.contains("org.apache.hadoop.util.Shell.runCommand") {
                         check_exit_caused_by_app(Some(true), &e);
@@ -307,13 +323,16 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                         loss_reason.contains("Killed by external signal") {
                         check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorKilledByExternalSignal
+                    } else if loss_reason.starts_with("Unable to create executor due to Unable to register with external shuffle server due to") ||
+                        loss_reason == "Slave lost" {
+                        ParsedTaskEndReason::LostExecutorOther
                     } else {
                         eprintln!("Unknown executor loss reason: {:?}", e);
                         ParsedTaskEndReason::LostExecutorOther
                     }
                 },
                 "ExceptionFailure" => {
-                    check_exit_caused_by_app(Some(true), &e);
+                    check_exit_caused_by_app(None, &e);
                     ParsedTaskEndReason::Exception
                 },
                 "TaskKilled" => {
@@ -328,6 +347,7 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                         ParsedTaskEndReason::KilledOther
                     }
                 },
+                "FetchFailed" => ParsedTaskEndReason::Other,
                 _ => {
                     eprintln!("Unknown task end reason: {:?}", e);
                     ParsedTaskEndReason::Other

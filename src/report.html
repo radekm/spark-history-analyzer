@@ -48,6 +48,13 @@
             return Math.round((timestampEndMs - timestampStartMs) / 1000 / 3600 * 10) / 10;
         }
 
+        function ellipsis(str, maxLength) {
+            if (str.length <= maxLength)
+                return str;
+
+            return str.substring(0, maxLength - 1) + "…";
+        }
+
         function Application(props) {
             return <div className="app">
                 <span className="prop"><span className="label">user</span> <span className="value">{props.app.user}</span></span>
@@ -55,17 +62,17 @@
                 <span className="prop"><span className="label">spark</span> <span className="value">{props.app.spark_version}</span></span>
                 <span className="prop"><span className="label">start</span> <span className="value">{prettyTimestamp(props.app.timestamp_start)}</span></span>
                 <span className="prop"><span className="label">hours</span> <span className="value">{durationInHours(props.app.timestamp_start, props.app.timestamp_end)}</span></span>
-                <span className="prop"><span className="label">log</span> <span className="value">{props.app.log_file}</span></span>
+                <span className="prop"><span className="label">id</span> <span className="value" title={"log file: " + props.app.log_file}>{props.app.app_id}</span></span>
                 <hr />
-                <span className="prop"><span className="label">name</span> <span className="value">{props.app.app_name}</span></span>
+                <span className="prop"><span className="label">name</span> <span className="value" title={props.app.app_name}>{ellipsis(props.app.app_name, 300)}</span></span>
             </div>
         }
 
         function InspectionTooMuchGC() {
-            if (!report.find(app => app.too_much_gc.length > 0))
-                return <div></div>;
+            const apps = report.filter(app => app.too_much_gc.length > 0);
 
-            const apps = report.map(app => <Application key={app.log_file} app={app.app} />)
+            if (apps.length == 0)
+                return <div></div>;
 
             return <div>
                 <h1>Excessive garbage collection</h1>
@@ -79,7 +86,7 @@
                     have more tasks but smaller).
                 </p>
                 <div>
-                    {apps}
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app} />)}
                 </div>
             </div>;
         }

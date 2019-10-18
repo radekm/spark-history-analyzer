@@ -107,21 +107,21 @@ struct TaskInfo {
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Accumulable {
+pub struct Accumulable {
     #[serde(rename = "ID")]
-    id: i64,
+    pub id: i64,
     #[serde(rename = "Name")]
-    name: String,
+    pub name: String,
     #[serde(rename = "Update")]
-    update: serde_json::Value,
+    pub update: serde_json::Value,
     #[serde(rename = "Value")]
-    value: serde_json::Value,
+    pub value: serde_json::Value,
     #[serde(rename = "Internal")]
-    internal: bool,
+    pub internal: bool,
     #[serde(rename = "Count Failed Values")]
-    count_failed_values: bool,
+    pub count_failed_values: bool,
     #[serde(rename = "Metadata")]
-    metadata: Option<serde_json::Value>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -272,8 +272,9 @@ pub struct ParsedStage {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedTask {
     pub task_end_reason: ParsedTaskEndReason,
-    // Preempted tasks don't have metrics.
+    // Eg. preempted tasks don't have metrics.
     pub metrics: Option<TaskMetrics>,
+    pub accumulables: Vec<Accumulable>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -388,6 +389,7 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
             stage.tasks.push(ParsedTask {
                 task_end_reason,
                 metrics: e.task_metrics,
+                accumulables: e.task_info.accumulables,
             });
         },
         Err(e) => eprintln!("Cannot parse SparkListenerTaskEndEvent from JSON: {}, {:?}", e, json)

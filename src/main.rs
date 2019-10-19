@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 struct Application {
@@ -27,6 +27,7 @@ struct Problems {
     exception: Vec<TaskCountInStage>,
 
     too_much_gc: Vec<TooMuchGcInStage>,
+    big_memory_tasks: Vec<BigMemoryTasksInStage>,
 }
 
 fn has_problem(problems: &Problems) -> bool {
@@ -36,7 +37,8 @@ fn has_problem(problems: &Problems) -> bool {
         problems.lost_executor_other.len() > 0 ||
         problems.killed_another_attempt_succeeded.len() > 0 ||
         problems.exception.len() > 0 ||
-        problems.too_much_gc.len() > 0
+        problems.too_much_gc.len() > 0 ||
+        problems.big_memory_tasks.len() > 0
 }
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -56,11 +58,23 @@ struct TooMuchGcInStage {
     task_with_metrics_count: u64,
 }
 
-struct Stats {
-    cnt: u64,
-    percentiles: HashMap<i32, f64>,
-    mean: f64,
-    std_dev: f64,
+// TODO We should also compare whether tasks across different stages
+//      use similar amount of memory.
+// TODO How does Spark measure memory used by single task?
+//      For sure it's possible to measure memory used by executor
+//      but if executor executes multiple tasks at once how does
+//      Spark measure their memory usage??
+
+// Stages which contain tasks which use twice more memory than quartile 3.
+// Stages where every task uses less than 4 GB of memory are ignored.
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
+struct BigMemoryTasksInStage {
+    stage_id: i64,
+    peak_memory_usage_quartile3: u64,
+    peak_memory_usage_max: u64,
+    big_memory_task_count: u64,
+    task_with_metrics_count: u64,
+    total_task_count: u64,
 }
 
 fn quantile(q: f64, sorted_samples: &Vec<f64>) -> f64 {
@@ -85,6 +99,14 @@ fn quantile(q: f64, sorted_samples: &Vec<f64>) -> f64 {
         // When `q` is `1.0` or very close `hi_index` is too big.
         sorted_samples[lo_index]
     }
+}
+
+fn percentile(p: i32, sorted_samples: &Vec<f64>) -> f64 {
+    quantile(p as f64 / 100.0, sorted_samples)
+}
+
+fn sort_floats(floats: &mut Vec<f64>) {
+    floats.sort_by(|a, b| a.partial_cmp(b).unwrap());
 }
 
 fn mean(samples: &Vec<f64>) -> f64 {
@@ -113,29 +135,8 @@ fn std_dev(mean: f64, samples: &Vec<f64>) -> f64 {
     variance.sqrt()
 }
 
-fn compute_stats(mut samples: Vec<f64>) -> Stats {
-    assert!(!samples.is_empty());
-
-    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    let mut percentiles = HashMap::new();
-    for p in [0, 1, 5, 10, 25, 50, 75, 90, 95, 99, 100].iter() {
-        percentiles.insert(*p, quantile(*p as f64 / 100.0, &samples));
-    }
-
-    let mean = mean(&samples);
-    let std_dev = std_dev(mean, &samples);
-
-    Stats {
-        cnt: samples.len() as u64,
-        percentiles,
-        mean,
-        std_dev,
-    }
-}
-
 use std::io::{self, BufRead};
-use crate::parsing::{ParsedTaskEndReason, ParsedStage};
+use crate::parsing::{ParsedTaskEndReason, ParsedStage, ParsedTask};
 
 mod parsing;
 
@@ -199,6 +200,81 @@ fn find_stages_with_too_much_gc(stages: &HashMap<i64, ParsedStage>) -> Vec<TooMu
     result
 }
 
+fn get_accumulated_value(task: &ParsedTask, accumulable_name: &str) -> Option<u64> {
+    let mut values = Vec::new();
+    for acc in task.accumulables.iter() {
+        if acc.name == accumulable_name {
+            match acc.update.as_u64() {
+                None => eprintln!("Accumulable {} has value {:?} which is not u64", accumulable_name, acc.update),
+                Some(value) => values.push(value),
+            }
+        }
+    }
+
+    values.sort();
+    // There may be multiple accumulables with the same name.
+    // This is fine if they have the same value.
+    if values.first() != values.last() {
+        eprintln!("Accumulable {} contains different values {:?}", accumulable_name, values);
+    }
+
+    values.last().cloned()
+}
+
+fn get_peak_memory_usage(task: &ParsedTask) -> Option<u64> {
+    get_accumulated_value(task, "internal.metrics.peakExecutionMemory")
+}
+
+fn find_stages_with_big_memory_tasks(stages: &HashMap<i64, ParsedStage>) -> Vec<BigMemoryTasksInStage> {
+    let mut result = Vec::new();
+
+    for (_, stage) in stages.iter() {
+        let mut peak_memory_usage = Vec::new();
+
+        for task in stage.tasks.iter() {
+            match get_peak_memory_usage(task) {
+                None => (),
+                Some(peak) => peak_memory_usage.push(peak as f64),
+            }
+        }
+
+        // Warn if more than 25 % of tasks lack peak memory usage --
+        // in such case diagnostics may not be precise.
+        if peak_memory_usage.len() != 0 && (peak_memory_usage.len() as f64 / stage.tasks.len() as f64) < 0.75 {
+            eprintln!("More than 25 % of tasks lack peak memory usage: {}/{}", peak_memory_usage.len(), stage.tasks.len());
+        }
+
+        // Ensure that enough tasks in this stage have metrics.
+        if peak_memory_usage.len() >= 20 {
+            sort_floats(&mut peak_memory_usage);
+            let quartile3 = percentile(75, &peak_memory_usage);
+            let max = percentile(100, &peak_memory_usage);
+            let mut big_memory_task_count = 0u64;
+            for usage in peak_memory_usage.iter() {
+                if *usage > quartile3 * 2.0 {
+                    big_memory_task_count += 1;
+                }
+            }
+
+            // Ignore stages where tasks use small amount of memory.
+            if big_memory_task_count > 0 && max > 4.0 * 1024.0 * 1024.0 * 1024.0 {
+                result.push(BigMemoryTasksInStage {
+                    stage_id: stage.stage_id,
+                    peak_memory_usage_quartile3: quartile3 as u64,
+                    peak_memory_usage_max: max as u64,
+                    big_memory_task_count,
+                    task_with_metrics_count: peak_memory_usage.len() as u64,
+                    total_task_count: stage.tasks.len() as u64,
+                });
+
+            }
+        }
+    }
+
+    result.sort_by_key(|x| x.stage_id);
+    result
+}
+
 fn main() {
     let mut report = Vec::new();
     // Read input file names from stdin.
@@ -230,6 +306,7 @@ fn main() {
             exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::Exception, &parsed.stages),
 
             too_much_gc: find_stages_with_too_much_gc(&parsed.stages),
+            big_memory_tasks: find_stages_with_big_memory_tasks(&parsed.stages),
         };
 
         if has_problem(&problems) {

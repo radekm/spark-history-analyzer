@@ -77,8 +77,9 @@
             return <div>
                 <h1>Excessive garbage collection</h1>
                 <p>
-                    Following applications waste more than 20 % of their CPU time by garbage collection.
-                    Ideally an application should spend no more than 5 % of its time in garbage collection.
+                    Following applications waste more than 20 % of their CPU time by garbage collection
+                    (in certain stages). Ideally an application should spend no more than 5 % of its time
+                    by garbage collection.
                 </p>
                 <p>
                     <strong>Tips:</strong> Increase <code>spark.executor.memory</code> or <code>spark.driver.memory</code> or
@@ -91,9 +92,38 @@
             </div>;
         }
 
+        function InspectionBigMemoryTasks() {
+            const apps = report.filter(app => app.big_memory_tasks.length > 0);
+
+            if (apps.length == 0)
+                return <div></div>;
+
+            return <div>
+                <h1>Tasks which use significantly more memory than other tasks</h1>
+                <p>
+                    Following applications have stages with tasks which consume
+                    significantly more memory than other tasks in the stage.
+                    Since all executors have same amount of memory
+                    that amount must be huge enough to process the biggest tasks.
+                    But since most tasks are small the memory is not used
+                    and it's wasted.
+                </p>
+                <p>
+                    <strong>Tips:</strong> Make all tasks use similar amount of memory.
+                    It also helps to assign more cores to executors hoping
+                    that big tasks will be distributed together with smaller tasks
+                    (this tool doesn't check whether you do it or not).
+                </p>
+                <div>
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app} />)}
+                </div>
+            </div>;
+        }
+
         function Report() {
             return <div>
                 <InspectionTooMuchGC />
+                <InspectionBigMemoryTasks />
             </div>;
         }
 

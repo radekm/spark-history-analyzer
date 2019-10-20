@@ -56,6 +56,7 @@ struct TooMuchGcInStage {
     gc_secs_for_all_tasks: f64,
     total_secs_for_all_tasks: f64,
     task_with_metrics_count: u64,
+    total_task_count: u64,
 }
 
 // TODO We should also compare whether tasks across different stages
@@ -191,7 +192,8 @@ fn find_stages_with_too_much_gc(stages: &HashMap<i64, ParsedStage>) -> Vec<TooMu
                 stage_id: stage.stage_id,
                 gc_secs_for_all_tasks,
                 total_secs_for_all_tasks,
-                task_with_metrics_count
+                task_with_metrics_count,
+                total_task_count: stage.tasks.len() as u64,
             });
         }
     }

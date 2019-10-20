@@ -10,14 +10,21 @@
 
         .app {
             display: flex;
-            flex-flow: row wrap;
+            flex-flow: column wrap;
             justify-content: flex-start;
-            padding: 1em;
+            padding-top: 0.2em;
+            padding-bottom: 0.2em;
+            border-top: 1px solid darkgray;
         }
 
-        .app > .prop { margin-right: 1.5em; }
-        .app > hr { flex-basis: 100%; height: 0; margin: 0; border: 0; }
-        .app > .prop > .label { color: darkgray; }
+        .row {
+            display: flex;
+            flex-flow: row wrap;
+            justify-content: flex-start;
+        }
+
+        .row > .prop { margin-right: 1.5em; }
+        .row > .prop > .label { color: darkgray; }
     </style>
 
     <script src="https://unpkg.com/react@16/umd/react.development.js" crossorigin></script>
@@ -55,16 +62,70 @@
             return str.substring(0, maxLength - 1) + "…";
         }
 
+        function roundSingleDigit(x) {
+            return Math.round(x * 10) / 10;
+        }
+
+        function formatSeconds(seconds) {
+            let unit = "s";
+            let divideBy = 1;
+            if (seconds >= 3600) {
+                divideBy = 3600;
+                unit = "h";
+            } else if (seconds >= 60) {
+                divideBy = 60;
+                unit = "m";
+            }
+
+            return `${roundSingleDigit(seconds / divideBy)} ${unit}`;
+        }
+
+        function formatBytes(bytes) {
+            let unit = "";
+            let divideBy = 1;
+            if (bytes >= 2 * 1024 * 1024 * 1024 * 1024) {
+                divideBy = 1024 * 1024 * 1024 * 1024;
+                unit = "t";
+            } else if (bytes >= 2 * 1024 * 1024 * 1024) {
+                divideBy = 1024 * 1024 * 1024;
+                unit = "g";
+            } else if (bytes >= 2 * 1024 * 1024) {
+                divideBy = 1024 * 1024;
+                unit = "m";
+            } else if (bytes >= 2 * 1024) {
+                divideBy = 1024;
+                unit = "k";
+            }
+
+            if (divideBy == 1) { return `${bytes}`; }
+            else {
+                let amount = roundSingleDigit(bytes / divideBy);
+                return `${amount} ${unit}`;
+            }
+        }
+
+        function formatAmountOfTotal(amount, total) {
+            if (amount == total) {
+                return `${amount}`;
+            } else {
+                return `${amount}/${total}`
+            }
+        }
+
         function Application(props) {
             return <div className="app">
-                <span className="prop"><span className="label">user</span> <span className="value">{props.app.user}</span></span>
-                <span className="prop"><span className="label">queue</span> <span className="value">{props.app.queue}</span></span>
-                <span className="prop"><span className="label">spark</span> <span className="value">{props.app.spark_version}</span></span>
-                <span className="prop"><span className="label">start</span> <span className="value">{prettyTimestamp(props.app.timestamp_start)}</span></span>
-                <span className="prop"><span className="label">hours</span> <span className="value">{durationInHours(props.app.timestamp_start, props.app.timestamp_end)}</span></span>
-                <span className="prop"><span className="label">id</span> <span className="value" title={"log file: " + props.app.log_file}>{props.app.app_id}</span></span>
-                <hr />
-                <span className="prop"><span className="label">name</span> <span className="value" title={props.app.app_name}>{ellipsis(props.app.app_name, 300)}</span></span>
+                <div className="row">
+                    <span className="prop"><span className="label">user</span> <span className="value">{props.app.user}</span></span>
+                    <span className="prop"><span className="label">queue</span> <span className="value">{props.app.queue}</span></span>
+                    <span className="prop"><span className="label">spark</span> <span className="value">{props.app.spark_version}</span></span>
+                    <span className="prop"><span className="label">start</span> <span className="value">{prettyTimestamp(props.app.timestamp_start)}</span></span>
+                    <span className="prop"><span className="label">hours</span> <span className="value">{durationInHours(props.app.timestamp_start, props.app.timestamp_end)}</span></span>
+                    <span className="prop"><span className="label">id</span> <span className="value" title={"log file: " + props.app.log_file}>{props.app.app_id}</span></span>
+                </div>
+                <div className="row">
+                    <span className="prop"><span className="label">name</span> <span className="value" title={props.app.app_name}>{ellipsis(props.app.app_name, 300)}</span></span>
+                </div>
+                {props.children}
             </div>
         }
 
@@ -87,7 +148,16 @@
                     have more tasks but smaller).
                 </p>
                 <div>
-                    {apps.map(app => <Application key={app.app.log_file} app={app.app} />)}
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app}>
+                        {app.too_much_gc.map(stage =>
+                            <div className="row">
+                                <span className="prop"><span className="label">stage</span> <span className="value">{stage.stage_id}</span></span>
+                                <span className="prop"><span className="label">GC time for all tasks</span> <span className="value">{formatSeconds(stage.gc_secs_for_all_tasks)}</span></span>
+                                <span className="prop"><span className="label">time for all tasks</span> <span className="value">{formatSeconds(stage.total_secs_for_all_tasks)}</span></span>
+                                <span className="prop"><span className="label">task with metrics</span> <span className="value">{formatAmountOfTotal(stage.task_with_metrics_count, stage.total_task_count)}</span></span>
+                            </div>
+                        )}
+                    </Application>)}
                 </div>
             </div>;
         }
@@ -115,7 +185,17 @@
                     (this tool doesn't check whether you do it or not).
                 </p>
                 <div>
-                    {apps.map(app => <Application key={app.app.log_file} app={app.app} />)}
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app}>
+                        {app.big_memory_tasks.map(stage =>
+                            <div className="row">
+                                <span className="prop"><span className="label">stage</span> <span className="value">{stage.stage_id}</span></span>
+                                <span className="prop"><span className="label">peak mem. quartile 3</span> <span className="value">{formatBytes(stage.peak_memory_usage_quartile3)}</span></span>
+                                <span className="prop"><span className="label">peak mem. max</span> <span className="value">{formatBytes(stage.peak_memory_usage_max)}</span></span>
+                                <span className="prop"><span className="label">big memory tasks</span> <span className="value">{stage.big_memory_task_count}</span></span>
+                                <span className="prop"><span className="label">task with metrics</span> <span className="value">{formatAmountOfTotal(stage.task_with_metrics_count, stage.total_task_count)}</span></span>
+                            </div>
+                        )}
+                    </Application>)}
                 </div>
             </div>;
         }

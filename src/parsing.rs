@@ -30,6 +30,8 @@ struct SparkListenerTaskEndEvent {
     task_metrics: Option<TaskMetrics>,
 }
 
+// Based on core/src/main/scala/org/apache/spark/util/JsonProtocol.scala
+// and core/src/main/scala/org/apache/spark/TaskEndReason.scala.
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TaskEndReason {
@@ -49,10 +51,10 @@ struct TaskEndReason {
     class_name: Option<String>,
     #[serde(rename = "Description")]
     description: Option<String>,
-    #[serde(rename = "Full Stack Trace")]
-    full_stack_trace: Option<String>,
     #[serde(rename = "Stack Trace")]
     stack_trace: Option<serde_json::Value>,
+    #[serde(rename = "Full Stack Trace")]
+    full_stack_trace: Option<String>,
 
     // Present when reason is `TaskKilled`.
     #[serde(rename = "Kill Reason")]
@@ -61,15 +63,26 @@ struct TaskEndReason {
     // Present when reason is `FetchFailed`.
     #[serde(rename = "Block Manager Address")]
     block_manager_address: Option<serde_json::Value>,
-    #[serde(rename = "Message")]
-    message: Option<String>,
-    #[serde(rename = "Map ID")]
-    map_id: Option<i64>,
-    #[serde(rename = "Reduce ID")]
-    reduce_id: Option<i64>,
     #[serde(rename = "Shuffle ID")]
     shuffle_id: Option<i64>,
+    #[serde(rename = "Map ID")]
+    map_id: Option<i64>,
+    #[serde(rename = "Map Index")]
+    map_index: Option<i64>,
+    #[serde(rename = "Reduce ID")]
+    reduce_id: Option<i64>,
+    #[serde(rename = "Message")]
+    message: Option<String>,
 
+    // Present when reason is `TaskCommitDenied`.
+    #[serde(rename = "Job ID")]
+    job_id: Option<i64>,
+    #[serde(rename = "Partition ID")]
+    partition_id: Option<i64>,
+    #[serde(rename = "Attempt Number")]
+    attempt_number: Option<i64>,
+
+    // Present when reason is `ExceptionFailure` or `TaskKilled`.
     #[serde(rename = "Accumulator Updates")]
     accumulator_updates: Option<serde_json::Value>,
 }
@@ -291,15 +304,12 @@ pub enum ParsedTaskEndReason {
     // For speculative execution.
     KilledAnotherAttemptSucceeded,
     KilledCanceled,
-    KilledOther,
+    // TODO Examine whether exception is raised when app is cancelled from Spark GUI.
+    //      If so handle differently.
     Exception,
+    // `Other` is for errors which should be reported by analyzer
+    // but don't have any special handling or advice associated.
     Other,
-}
-
-fn check_exit_caused_by_app(expected: Option<bool>, e: &SparkListenerTaskEndEvent) {
-    if e.task_end_reason.exit_caused_by_app != expected {
-        eprintln!("Expected task end reason {:?}: {:?}", expected, e);
-    }
 }
 
 fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut ParsedApplicationLog) {
@@ -309,44 +319,31 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                 eprintln!("Unknown task type: {:?}", e);
             }
             let task_end_reason = match e.task_end_reason.reason.as_str() {
-                "Success" => {
-                    check_exit_caused_by_app(None, &e);
-                    ParsedTaskEndReason::Success
-                },
-                "ExceptionFailure" => {
-                    check_exit_caused_by_app(None, &e);
-                    ParsedTaskEndReason::Exception
-                },
+                "Success" => ParsedTaskEndReason::Success,
+                "ExceptionFailure" => ParsedTaskEndReason::Exception,
                 "ExecutorLostFailure" => {
                     let loss_reason = e.task_end_reason.loss_reason.as_ref().expect("executor loss reason");
                     if loss_reason.ends_with(" was preempted.") {
-                        check_exit_caused_by_app(Some(false), &e);
                         ParsedTaskEndReason::LostExecutorPreempted
                     } else if loss_reason.starts_with("Container killed by YARN for exceeding memory limits.") &&
                         loss_reason.contains("Consider boosting spark.yarn.executor.memoryOverhead") {
-                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorMemoryOverheadExceeded
                     } else if loss_reason.starts_with("Executor heartbeat timed out after ") {
-                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorHeartbeatTimedOut
                     } else if loss_reason.starts_with("Container marked as failed:") &&
                         loss_reason.contains("org.apache.hadoop.util.Shell.runCommand") {
-                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorShellError
                     } else if loss_reason.starts_with("Container marked as failed:") &&
                         loss_reason.contains("Killed by external signal") {
-                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorKilledByExternalSignal
                     } else if loss_reason.starts_with("Container from a bad node:") &&
                         loss_reason.contains("Killed by external signal") {
-                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorKilledByExternalSignal
                     } else if loss_reason.starts_with("Unable to create executor due to Unable to register with external shuffle server due to") ||
                         loss_reason == "Slave lost" {
                         ParsedTaskEndReason::LostExecutorOther
                     } else if loss_reason.starts_with("Container marked as failed:") &&
                         loss_reason.ends_with("Diagnostics: Container released on a *lost* node") {
-                        check_exit_caused_by_app(Some(true), &e);
                         ParsedTaskEndReason::LostExecutorOther
                     } else {
                         eprintln!("Unknown executor loss reason: {:?}", e);
@@ -354,7 +351,6 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                     }
                 },
                 "TaskKilled" => {
-                    check_exit_caused_by_app(None, &e);
                     let kill_reason = e.task_end_reason.kill_reason.as_ref().expect("kill reason");
                     if kill_reason == "another attempt succeeded" {
                         ParsedTaskEndReason::KilledAnotherAttemptSucceeded
@@ -362,7 +358,7 @@ fn handle_event_spark_listener_task_end(json: serde_json::Value, parsed: &mut Pa
                         ParsedTaskEndReason::KilledCanceled
                     } else {
                         eprintln!("Unknown kill reason: {:?}", e);
-                        ParsedTaskEndReason::KilledOther
+                        ParsedTaskEndReason::Other
                     }
                 },
                 "FetchFailed" => ParsedTaskEndReason::Other,

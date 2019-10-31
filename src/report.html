@@ -40,21 +40,6 @@
     <script type="text/babel">
         'use strict';
 
-        function prettyTimestamp(timestampMs) {
-            const date = new Date(timestampMs);
-            const hours = date.getHours();
-            const minutes = date.getMinutes();
-
-            const dateStr = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDay()}`;
-            const timeStr = `${hours}:${minutes < 10 ? '0':''}${minutes}`;
-
-            return `${dateStr} ${timeStr}`;
-        }
-
-        function durationInHours(timestampStartMs, timestampEndMs) {
-            return Math.round((timestampEndMs - timestampStartMs) / 1000 / 3600 * 10) / 10;
-        }
-
         function ellipsis(str, maxLength) {
             if (str.length <= maxLength)
                 return str;
@@ -118,8 +103,8 @@
                     <span className="prop"><span className="label">user</span> <span className="value">{props.app.user}</span></span>
                     <span className="prop"><span className="label">queue</span> <span className="value">{props.app.queue}</span></span>
                     <span className="prop"><span className="label">spark</span> <span className="value">{props.app.spark_version}</span></span>
-                    <span className="prop"><span className="label">start</span> <span className="value">{prettyTimestamp(props.app.timestamp_start)}</span></span>
-                    <span className="prop"><span className="label">hours</span> <span className="value">{durationInHours(props.app.timestamp_start, props.app.timestamp_end)}</span></span>
+                    <span className="prop"><span className="label">start</span> <span className="value">{props.app.dt_start}</span></span>
+                    <span className="prop"><span className="label">duration</span> <span className="value">{formatSeconds(props.app.wallclock_secs)}</span></span>
                     <span className="prop"><span className="label">id</span> <span className="value" title={"log file: " + props.app.log_file}>{props.app.app_id}</span></span>
                 </div>
                 <div className="row">

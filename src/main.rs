@@ -4,8 +4,9 @@ use std::collections::{HashMap, HashSet};
 struct Application {
     app_id: String,
     app_name: String,
-    timestamp_start: i64,
-    timestamp_end: i64,
+    dt_start: String,
+    dt_end: String,
+    wallclock_secs: u64,
     user: String,
     spark_version: String,
     queue: Option<String>,
@@ -136,8 +137,14 @@ fn std_dev(mean: f64, samples: &Vec<f64>) -> f64 {
     variance.sqrt()
 }
 
+fn timestamp_to_dt(timestamp_ms: i64) -> String {
+    let dt = NaiveDateTime::from_timestamp(timestamp_ms / 1000, 0);
+    dt.format("%Y-%m-%d %H:%M").to_string()
+}
+
 use std::io::{self, BufRead};
 use crate::parsing::{ParsedTaskEndReason, ParsedStage, ParsedTask};
+use chrono::NaiveDateTime;
 
 mod parsing;
 
@@ -287,14 +294,16 @@ fn main() {
         let app = Application {
             app_id: parsed.app_id,
             app_name: parsed.app_name,
-            timestamp_start: parsed.timestamp_start,
-            timestamp_end: parsed.timestamp_end,
+            dt_start: timestamp_to_dt(parsed.timestamp_start),
+            dt_end: timestamp_to_dt(parsed.timestamp_end),
+            wallclock_secs: ((parsed.timestamp_end - parsed.timestamp_start) / 1000) as u64,
             user: parsed.user,
             spark_version: parsed.spark_version,
             queue: parsed.queue,
             log_file,
             event_counts_by_type: parsed.event_counts_by_type,
         };
+        eprintln!("Parsed {} ({})", app.app_id, app.dt_start);
 
         let problems = Problems {
             app,

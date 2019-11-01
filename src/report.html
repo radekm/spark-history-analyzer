@@ -114,32 +114,30 @@
             </div>
         }
 
-        function InspectionTooMuchGC(props) {
-            const apps = props.report.filter(app => app.too_much_gc.length > 0);
+        function InspectionGCIntensiveTasks(props) {
+            const apps = props.report.filter(app => app.gc_intensive_tasks.length > 0);
 
             if (apps.length == 0)
                 return <div></div>;
 
             return <div>
-                <h1>Excessive garbage collection</h1>
+                <h1>GC intensive tasks</h1>
                 <p>
-                    Following applications waste more than 20 % of their CPU time by garbage collection
-                    (in certain stages). Ideally an application should spend no more than 5 % of its time
-                    by garbage collection.
+                    Following applications have tasks which spend 50 % of their time
+                    by garbage collection. This usually indicates not enough memory on executors.
                 </p>
                 <p>
-                    <strong>Tips:</strong> Increase <code>spark.executor.memory</code> or <code>spark.driver.memory</code> or
-                    make your tasks use less memory (eg. by increasing the number of partitions in affected stages &ndash;
-                    have more tasks but smaller).
+                    <strong>Solutions:</strong> When your job works you don't have to do anything.
+                    If your job starts crashing increase <code>spark.executor.memory</code> or
+                    make your tasks use less memory (eg. by increasing the number of partitions
+                    in affected stages &ndash; have more tasks but smaller).
                 </p>
                 <div>
                     {apps.map(app => <Application key={app.app.log_file} app={app.app}>
-                        {app.too_much_gc.map(stage =>
+                        {app.gc_intensive_tasks.map(stage =>
                             <div className="row">
                                 <span className="prop"><span className="label">stage</span> <span className="value">{stage.stage_id}</span></span>
-                                <span className="prop"><span className="label">GC time for all tasks</span> <span className="value">{formatSeconds(stage.gc_secs_for_all_tasks)}</span></span>
-                                <span className="prop"><span className="label">time for all tasks</span> <span className="value">{formatSeconds(stage.total_secs_for_all_tasks)}</span></span>
-                                <span className="prop"><span className="label">task with metrics</span> <span className="value">{formatAmountOfTotal(stage.task_with_metrics_count, stage.total_task_count)}</span></span>
+                                <span className="prop"><span className="label">tasks</span> <span className="value">{formatAmountOfTotal(stage.matching_count, stage.with_metrics_count)}</span></span>
                             </div>
                         )}
                     </Application>)}
@@ -279,7 +277,7 @@
 
                 return <div>
                     <FilterForm filter={this.state.filter} onFilterChange={this.handleFilterChange} />
-                    <InspectionTooMuchGC report={report} />
+                    <InspectionGCIntensiveTasks report={report} />
                     <InspectionBigMemoryTasks report={report} />
                 </div>;
             }

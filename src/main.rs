@@ -27,7 +27,9 @@ struct Problems {
     killed_another_attempt_succeeded: Vec<TaskCountInStage>,
     exception: Vec<TaskCountInStage>,
 
-    too_much_gc: Vec<TooMuchGcInStage>,
+    // Stages which contain tasks longer than 5 minutes
+    // where GC takes at least 50 % of task time.
+    gc_intensive_tasks: Vec<TaskCountInStage>,
     big_memory_tasks: Vec<BigMemoryTasksInStage>,
 }
 
@@ -38,7 +40,7 @@ fn has_problem(problems: &Problems) -> bool {
         problems.lost_executor_other.len() > 0 ||
         problems.killed_another_attempt_succeeded.len() > 0 ||
         problems.exception.len() > 0 ||
-        problems.too_much_gc.len() > 0 ||
+        problems.gc_intensive_tasks.len() > 0 ||
         problems.big_memory_tasks.len() > 0
 }
 
@@ -46,18 +48,7 @@ fn has_problem(problems: &Problems) -> bool {
 struct TaskCountInStage {
     stage_id: i64,
     matching_count: u64,
-    total_count: u64,
-}
-
-// Stages where GC takes more than 20 % of time.
-// Stages shorter than 2 minutes are ignored.
-#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
-struct TooMuchGcInStage {
-    stage_id: i64,
-    gc_secs_for_all_tasks: f64,
-    total_secs_for_all_tasks: f64,
-    task_with_metrics_count: u64,
-    total_task_count: u64,
+    with_metrics_count: u64,
 }
 
 // TODO We should also compare whether tasks across different stages
@@ -165,7 +156,7 @@ fn count_tasks_with_task_end_reason(task_end_reason: ParsedTaskEndReason, stages
             result.push(TaskCountInStage {
                 stage_id: stage.stage_id,
                 matching_count,
-                total_count: stage.tasks.len() as u64,
+                with_metrics_count: stage.tasks.len() as u64,
             });
         }
     }
@@ -174,33 +165,34 @@ fn count_tasks_with_task_end_reason(task_end_reason: ParsedTaskEndReason, stages
     result
 }
 
-fn find_stages_with_too_much_gc(stages: &HashMap<i64, ParsedStage>) -> Vec<TooMuchGcInStage> {
+fn find_stages_with_gc_intensive_tasks(stages: &HashMap<i64, ParsedStage>) -> Vec<TaskCountInStage> {
     let mut result = Vec::new();
 
     for (_, stage) in stages.iter() {
-        let mut gc_secs_for_all_tasks = 0f64;
-        let mut total_secs_for_all_tasks = 0f64;
-        let mut task_with_metrics_count = 0u64;
+        let mut matching_count = 0u64;
+        let mut with_metrics_count = 0u64;
 
 
         for task in stage.tasks.iter() {
             match task.metrics.as_ref() {
                 None => (),
                 Some(metrics) => {
-                    gc_secs_for_all_tasks += metrics.jvm_gc_time as f64 / 1000.0;
-                    total_secs_for_all_tasks += metrics.executor_run_time as f64 / 1000.0;
-                    task_with_metrics_count += 1;
+                    let gc_secs = metrics.jvm_gc_time as f64 / 1000.0;
+                    let total_secs = metrics.executor_run_time as f64 / 1000.0;
+
+                    if total_secs >= 5.0 * 60.0 && gc_secs / total_secs >= 0.5 {
+                        matching_count += 1;
+                    }
+                    with_metrics_count += 1;
                 },
             }
         }
 
-        if total_secs_for_all_tasks >= 120.0 && (gc_secs_for_all_tasks / total_secs_for_all_tasks) > 0.2 {
-            result.push(TooMuchGcInStage {
+        if matching_count > 0 {
+            result.push(TaskCountInStage {
                 stage_id: stage.stage_id,
-                gc_secs_for_all_tasks,
-                total_secs_for_all_tasks,
-                task_with_metrics_count,
-                total_task_count: stage.tasks.len() as u64,
+                matching_count,
+                with_metrics_count,
             });
         }
     }
@@ -316,7 +308,7 @@ fn main() {
             killed_another_attempt_succeeded: count_tasks_with_task_end_reason(ParsedTaskEndReason::KilledAnotherAttemptSucceeded, &parsed.stages),
             exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::Exception, &parsed.stages),
 
-            too_much_gc: find_stages_with_too_much_gc(&parsed.stages),
+            gc_intensive_tasks: find_stages_with_gc_intensive_tasks(&parsed.stages),
             big_memory_tasks: find_stages_with_big_memory_tasks(&parsed.stages),
         };
 

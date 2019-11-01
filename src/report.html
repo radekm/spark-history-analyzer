@@ -114,8 +114,8 @@
             </div>
         }
 
-        function InspectionTooMuchGC() {
-            const apps = report.filter(app => app.too_much_gc.length > 0);
+        function InspectionTooMuchGC(props) {
+            const apps = props.report.filter(app => app.too_much_gc.length > 0);
 
             if (apps.length == 0)
                 return <div></div>;
@@ -147,8 +147,8 @@
             </div>;
         }
 
-        function InspectionBigMemoryTasks() {
-            const apps = report.filter(app => app.big_memory_tasks.length > 0);
+        function InspectionBigMemoryTasks(props) {
+            const apps = props.report.filter(app => app.big_memory_tasks.length > 0);
 
             if (apps.length == 0)
                 return <div></div>;
@@ -185,14 +185,107 @@
             </div>;
         }
 
-        function Report() {
-            return <div>
-                <InspectionTooMuchGC />
-                <InspectionBigMemoryTasks />
-            </div>;
+        class FilterForm extends React.Component {
+            constructor(props) {
+                super(props);
+
+                this.handleChange = this.handleChange.bind(this);
+            }
+
+            handleChange(event) {
+                let newFilter = {
+                    user: this.props.filter.user,
+                    queue: this.props.filter.queue,
+                    appId: this.props.filter.appId,
+                    appNameContains: this.props.filter.appNameContains,
+                };
+                newFilter[event.target.name] = event.target.value;
+                this.props.onFilterChange(newFilter);
+            }
+
+            render() {
+                return (
+                    <form>
+                        <label>
+                            user
+                            <input type="text" name="user" value={this.props.filter.user} onChange={this.handleChange} />
+                        </label>
+                        <label>
+                            queue
+                            <input type="text" name="queue" value={this.props.filter.queue} onChange={this.handleChange} />
+                        </label>
+                        <label>
+                            app id
+                            <input type="text" name="appId" value={this.props.filter.appId} onChange={this.handleChange} />
+                        </label>
+                        <label>
+                            app name (contains)
+                            <input type="text" name="appNameContains" value={this.props.filter.appNameContains} onChange={this.handleChange} />
+                        </label>
+                    </form>
+                );
+            }
         }
 
-        ReactDOM.render(<Report />, document.getElementById("report-container"));
+        class Report extends React.Component {
+            constructor(props) {
+                super(props);
+
+                this.handleFilterChange = this.handleFilterChange.bind(this);
+                this.filterReport = this.filterReport.bind(this);
+
+                this.state = {
+                    filter: {
+                        user: "",
+                        queue: "",
+                        appId: "",
+                        appNameContains: "",
+                    }
+                };
+            }
+
+            handleFilterChange(newFilter) {
+                this.setState({filter: newFilter});
+            }
+
+            filterReport(report) {
+                const filter = this.state.filter;
+
+                const user = filter.user.trim();
+                if (user != "") {
+                    report = report.filter(app => app.app.user == user);
+                }
+
+                const queue = filter.queue.trim();
+                if (queue != "") {
+                    report = report.filter(app => app.app.queue == queue);
+                }
+
+                const appId = filter.appId.trim();
+                if (appId != "") {
+                    report = report.filter(app => app.app.app_id == appId);
+                }
+
+                const appNameContains = filter.appNameContains.trim().toLowerCase();
+                if (appNameContains != "") {
+                    report = report.filter(app => app.app.app_name.toLowerCase().includes(appNameContains));
+                }
+
+                return report;
+            }
+
+            render() {
+                let report = this.filterReport(this.props.report);
+
+                return <div>
+                    <FilterForm filter={this.state.filter} onFilterChange={this.handleFilterChange} />
+                    <InspectionTooMuchGC report={report} />
+                    <InspectionBigMemoryTasks report={report} />
+                </div>;
+            }
+        }
+
+        ReactDOM.render(<Report report={report} />, document.getElementById("report-container"));
     </script>
 </head>
 <body>

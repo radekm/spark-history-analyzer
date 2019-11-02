@@ -145,6 +145,39 @@
             </div>;
         }
 
+        function InspectionSlowTasks(props) {
+            const apps = props.report.filter(app => app.slow_tasks.length > 0);
+
+            if (apps.length == 0)
+                return <div></div>;
+
+            return <div>
+                <h1>Slow tasks</h1>
+                <p>
+                    Following applications have tasks which take longer than 1 hour.
+                    When such task fails it's a lot of wasted time. Tasks should be short
+                    so when a failure happens they can be swiftly recomputed.
+                    Don't be afraid Spark can efficiently process small tasks
+                    which take only 10 seconds.
+                </p>
+                <p>
+                    <strong>Solution:</strong> Make your tasks smaller
+                    (eg. by increasing the number of partitions in affected stages)
+                    or compute results faster.
+                </p>
+                <div>
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app}>
+                        {app.slow_tasks.map(stage =>
+                            <div className="row">
+                                <span className="prop"><span className="label">stage</span> <span className="value">{stage.stage_id}</span></span>
+                                <span className="prop"><span className="label">tasks</span> <span className="value">{formatAmountOfTotal(stage.matching_count, stage.with_metrics_count)}</span></span>
+                            </div>
+                        )}
+                    </Application>)}
+                </div>
+            </div>;
+        }
+
         function InspectionBigMemoryTasks(props) {
             const apps = props.report.filter(app => app.big_memory_tasks.length > 0);
 
@@ -278,6 +311,7 @@
                 return <div>
                     <FilterForm filter={this.state.filter} onFilterChange={this.handleFilterChange} />
                     <InspectionGCIntensiveTasks report={report} />
+                    <InspectionSlowTasks report={report} />
                     <InspectionBigMemoryTasks report={report} />
                 </div>;
             }

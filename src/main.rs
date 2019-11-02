@@ -31,6 +31,9 @@ struct Problems {
     // where GC takes at least 50 % of task time.
     gc_intensive_tasks: Vec<TaskCountInStage>,
     big_memory_tasks: Vec<BigMemoryTasksInStage>,
+
+    // Stages which contain tasks longer than 1 hour.
+    slow_tasks: Vec<TaskCountInStage>,
 }
 
 fn has_problem(problems: &Problems) -> bool {
@@ -41,7 +44,8 @@ fn has_problem(problems: &Problems) -> bool {
         problems.killed_another_attempt_succeeded.len() > 0 ||
         problems.exception.len() > 0 ||
         problems.gc_intensive_tasks.len() > 0 ||
-        problems.big_memory_tasks.len() > 0
+        problems.big_memory_tasks.len() > 0 ||
+        problems.slow_tasks.len() > 0
 }
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -201,6 +205,41 @@ fn find_stages_with_gc_intensive_tasks(stages: &HashMap<i64, ParsedStage>) -> Ve
     result
 }
 
+fn find_stages_with_slow_tasks(stages: &HashMap<i64, ParsedStage>) -> Vec<TaskCountInStage> {
+    let mut result = Vec::new();
+
+    for (_, stage) in stages.iter() {
+        let mut matching_count = 0u64;
+        let mut with_metrics_count = 0u64;
+
+
+        for task in stage.tasks.iter() {
+            match task.metrics.as_ref() {
+                None => (),
+                Some(metrics) => {
+                    let total_secs = metrics.executor_run_time as f64 / 1000.0;
+
+                    if total_secs >= 60.0 * 60.0 {
+                        matching_count += 1;
+                    }
+                    with_metrics_count += 1;
+                },
+            }
+        }
+
+        if matching_count > 0 {
+            result.push(TaskCountInStage {
+                stage_id: stage.stage_id,
+                matching_count,
+                with_metrics_count,
+            });
+        }
+    }
+
+    result.sort_by_key(|x| x.stage_id);
+    result
+}
+
 fn get_accumulated_value(task: &ParsedTask, accumulable_name: &str) -> Option<u64> {
     let mut values = Vec::new();
     for acc in task.accumulables.iter() {
@@ -310,6 +349,8 @@ fn main() {
 
             gc_intensive_tasks: find_stages_with_gc_intensive_tasks(&parsed.stages),
             big_memory_tasks: find_stages_with_big_memory_tasks(&parsed.stages),
+
+            slow_tasks: find_stages_with_slow_tasks(&parsed.stages),
         };
 
         if has_problem(&problems) {

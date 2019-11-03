@@ -54,7 +54,10 @@
         function formatSeconds(seconds) {
             let unit = "s";
             let divideBy = 1;
-            if (seconds >= 3600) {
+            if (seconds >= 86400) {
+                divideBy = 86400;
+                unit = "d";
+            } else if (seconds >= 3600) {
                 divideBy = 3600;
                 unit = "h";
             } else if (seconds >= 60) {
@@ -140,6 +143,34 @@
                                 <span className="prop"><span className="label">tasks</span> <span className="value">{formatAmountOfTotal(stage.matching_count, stage.with_metrics_count)}</span></span>
                             </div>
                         )}
+                    </Application>)}
+                </div>
+            </div>;
+        }
+
+        function InspectionGCIntensiveApp(props) {
+            const apps = props.report.filter(app => app.gc_intensive_app !== null);
+
+            if (apps.length == 0)
+                return <div></div>;
+
+            return <div>
+                <h1>GC intensive apps</h1>
+                <p>
+                    Following applications waste more than 10 % of their CPU time by garbage collection.
+                    Ideally an application should spend no more than 5 % of its time by garbage collection.                </p>
+                <p>
+                    <strong>Solutions:</strong> Increase <code>spark.executor.memory</code> or
+                    make your tasks use less memory (eg. by increasing the number of partitions
+                    in affected stages &ndash; have more tasks but smaller).
+                </p>
+                <div>
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app}>
+                        <div className="row">
+                            <span className="prop"><span className="label">time for all tasks</span> <span className="value">{formatSeconds(app.gc_intensive_app.total_secs_for_all_tasks)}</span></span>
+                            <span className="prop"><span className="label">time for GC</span> <span className="value">{formatSeconds(app.gc_intensive_app.total_secs_for_gc)}</span></span>
+                            <span className="prop"><span className="label">tasks</span> <span className="value">{app.gc_intensive_app.task_with_metrics_count}</span></span>
+                        </div>
                     </Application>)}
                 </div>
             </div>;
@@ -334,6 +365,7 @@
                 return <div>
                     <FilterForm filter={this.state.filter} onFilterChange={this.handleFilterChange} />
                     <InspectionGCIntensiveTasks report={report} />
+                    <InspectionGCIntensiveApp report={report} />
                     <InspectionSlowTasks report={report} />
                     <InspectionOnlyFailedTasks report={report} />
                     <InspectionBigMemoryTasks report={report} />

@@ -30,6 +30,8 @@ struct Problems {
     // Stages which contain tasks longer than 5 minutes
     // where GC takes at least 50 % of task time.
     gc_intensive_tasks: Vec<TaskCountInStage>,
+    // If GC takes at least 5 hours and at least 10 % of total time.
+    gc_intensive_app: Option<GcIntensiveApp>,
     big_memory_tasks: Vec<BigMemoryTasksInStage>,
 
     // Stages which contain tasks longer than 1 hour.
@@ -59,6 +61,13 @@ struct TaskCountInStage {
     stage_id: i64,
     matching_count: u64,
     with_metrics_count: u64,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
+struct GcIntensiveApp {
+    total_secs_for_all_tasks: u64,
+    total_secs_for_gc: u64,
+    task_with_metrics_count: u64,
 }
 
 // TODO We should also compare whether tasks across different stages
@@ -209,6 +218,35 @@ fn find_stages_with_gc_intensive_tasks(stages: &HashMap<i64, ParsedStage>) -> Ve
 
     result.sort_by_key(|x| x.stage_id);
     result
+}
+
+fn detect_gc_intensive_app(stages: &HashMap<i64, ParsedStage>) -> Option<GcIntensiveApp> {
+    let mut total_secs_for_gc = 0.0;
+    let mut total_secs_for_all_tasks = 0.0;
+    let mut task_with_metrics_count = 0u64;
+
+    for (_, stage) in stages.iter() {
+        for task in stage.tasks.iter() {
+            match task.metrics.as_ref() {
+                None => (),
+                Some(metrics) => {
+                    total_secs_for_gc += metrics.jvm_gc_time as f64 / 1000.0;
+                    total_secs_for_all_tasks += metrics.executor_run_time as f64 / 1000.0;
+                    task_with_metrics_count += 1;
+                },
+            }
+        }
+    }
+
+    if total_secs_for_gc >= 5.0 * 3600.0 && total_secs_for_gc / total_secs_for_all_tasks >= 0.1 {
+        Some(GcIntensiveApp {
+            total_secs_for_all_tasks: total_secs_for_all_tasks as u64,
+            total_secs_for_gc: total_secs_for_gc as u64,
+            task_with_metrics_count,
+        })
+    } else {
+        None
+    }
 }
 
 fn find_stages_with_slow_tasks(stages: &HashMap<i64, ParsedStage>) -> Vec<TaskCountInStage> {
@@ -366,6 +404,7 @@ fn main() {
             exception: count_tasks_with_task_end_reason(ParsedTaskEndReason::Exception, &parsed.stages),
 
             gc_intensive_tasks: find_stages_with_gc_intensive_tasks(&parsed.stages),
+            gc_intensive_app: detect_gc_intensive_app(&parsed.stages),
             big_memory_tasks: find_stages_with_big_memory_tasks(&parsed.stages),
 
             slow_tasks: find_stages_with_slow_tasks(&parsed.stages),

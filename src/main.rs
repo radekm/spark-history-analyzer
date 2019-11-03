@@ -34,6 +34,11 @@ struct Problems {
 
     // Stages which contain tasks longer than 1 hour.
     slow_tasks: Vec<TaskCountInStage>,
+
+    // Whether this application has any successful task.
+    // No successful task may mean that application is logging
+    // only errors and warnings and this report is not reliable.
+    successful_task: bool,
 }
 
 fn has_problem(problems: &Problems) -> bool {
@@ -45,7 +50,8 @@ fn has_problem(problems: &Problems) -> bool {
         problems.exception.len() > 0 ||
         problems.gc_intensive_tasks.len() > 0 ||
         problems.big_memory_tasks.len() > 0 ||
-        problems.slow_tasks.len() > 0
+        problems.slow_tasks.len() > 0 ||
+        !problems.successful_task
 }
 
 #[derive(Default, Debug, Clone, PartialEq, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -240,6 +246,18 @@ fn find_stages_with_slow_tasks(stages: &HashMap<i64, ParsedStage>) -> Vec<TaskCo
     result
 }
 
+fn has_successful_task(stages: &HashMap<i64, ParsedStage>) -> bool {
+    for (_, stage) in stages.iter() {
+        for task in stage.tasks.iter() {
+            match task.task_end_reason {
+                ParsedTaskEndReason::Success => return true,
+                _ => (),
+            }
+        }
+    }
+    false
+}
+
 fn get_accumulated_value(task: &ParsedTask, accumulable_name: &str) -> Option<u64> {
     let mut values = Vec::new();
     for acc in task.accumulables.iter() {
@@ -351,6 +369,7 @@ fn main() {
             big_memory_tasks: find_stages_with_big_memory_tasks(&parsed.stages),
 
             slow_tasks: find_stages_with_slow_tasks(&parsed.stages),
+            successful_task: has_successful_task(&parsed.stages),
         };
 
         if has_problem(&problems) {

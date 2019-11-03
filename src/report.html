@@ -178,6 +178,29 @@
             </div>;
         }
 
+        function InspectionOnlyFailedTasks(props) {
+            const apps = props.report.filter(app => !app.successful_task);
+
+            if (apps.length == 0)
+                return <div></div>;
+
+            return <div>
+                <h1>Only failed tasks</h1>
+                <p>
+                    Following applications have no successful task.
+                    This may mean that logging level is set to warning or error
+                    and no information about success is logged.
+                    This is not a problem per se it only means that this report is not reliable.
+                </p>
+                <p>
+                    <strong>Solution:</strong> Set logging level to info.
+                </p>
+                <div>
+                    {apps.map(app => <Application key={app.app.log_file} app={app.app} />)}
+                </div>
+            </div>;
+        }
+
         function InspectionBigMemoryTasks(props) {
             const apps = props.report.filter(app => app.big_memory_tasks.length > 0);
 
@@ -312,6 +335,7 @@
                     <FilterForm filter={this.state.filter} onFilterChange={this.handleFilterChange} />
                     <InspectionGCIntensiveTasks report={report} />
                     <InspectionSlowTasks report={report} />
+                    <InspectionOnlyFailedTasks report={report} />
                     <InspectionBigMemoryTasks report={report} />
                 </div>;
             }
